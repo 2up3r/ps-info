@@ -1,0 +1,60 @@
+cabal-version:      3.0
+name:               ps-info
+version:            0.1.0.0
+-- synopsis:
+-- description:
+license:            AGPL-3.0-or-later
+license-file:       LICENSE
+author:             Fredrik Rød
+maintainer:         tilfredrik@icloud.com
+-- copyright:
+category:           System
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+-- extra-source-files:
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:           warnings
+    exposed-modules:  PsInfo,
+                      PsInfo.Darwin,
+                      PsInfo.Darwin.Libproc,
+                      PsInfo.Darwin.Mach,
+                      PsInfo.Darwin.Rusage,
+                      PsInfo.Darwin.Sysctl,
+                      PsInfo.Linux,
+                      PsInfo.Linux.Proc,
+    -- other-modules:
+    -- other-extensions:
+    build-depends:    base ^>=4.17.2.1,
+                      directory,
+                      process,
+                      attoparsec,
+                      text,
+                      bytestring,
+                      freer-simple
+    hs-source-dirs:   src
+    default-language: Haskell2010
+
+test-suite ps-info-test
+    import:           warnings
+    default-language: Haskell2010
+    other-modules:    PsInfo.PsInfoTests,
+                      PsInfo.Darwin.DarwinTests,
+                      PsInfo.Darwin.Sysctl.SysctlTests,
+                      PsInfo.Darwin.Rusage.RusageTests,
+                      PsInfo.Darwin.Mach.MachTests,
+                      PsInfo.Darwin.Libproc.LibprocTests,
+                      PsInfo.Linux.LinuxTests,
+                      PsInfo.Linux.Proc.ProcTests,
+    -- other-extensions:
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+    build-depends:    base ^>=4.17.2.1,
+                      ps-info,
+                      HUnit,
+                      QuickCheck,
+                      freer-simple
