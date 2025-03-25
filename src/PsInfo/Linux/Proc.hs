@@ -110,7 +110,7 @@ pStatArg pName pVal = pName *> A.many1 A.space *> pVal
 
 pStatCPU :: A.Parser StatCPU
 pStatCPU = pStatArg ("cpu" *> A.many' A.digit) $ StatCPU
-    <$> (A.many1 A.space *> A.decimal)
+    <$> A.decimal
     <*> (A.many1 A.space *> A.decimal)
     <*> (A.many1 A.space *> A.decimal)
     <*> (A.many1 A.space *> A.decimal)
@@ -295,10 +295,10 @@ pPIDStat = PIDStat
     <*> (A.space *> pPIDStatComm)
     <*> (A.space *> pPIDStatState)
     <*> (A.space *> A.decimal)
+    <*> (A.space *> A.signed A.decimal)
     <*> (A.space *> A.decimal)
-    <*> (A.space *> A.decimal)
-    <*> (A.space *> A.decimal)
-    <*> (A.space *> A.decimal)
+    <*> (A.space *> A.signed A.decimal)
+    <*> (A.space *> A.signed A.decimal)
     <*> (A.space *> A.decimal)
     <*> (A.space *> A.decimal)
     <*> (A.space *> A.decimal)
@@ -349,5 +349,5 @@ pPIDStatm = PIDStatm
     <*> (A.space *> A.decimal)
     <*> (A.space *> A.decimal)
     <*> (A.space *> A.decimal)
+    <* A.takeWhile (const True)
     <* A.endOfInput
-
