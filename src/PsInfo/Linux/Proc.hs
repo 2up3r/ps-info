@@ -14,7 +14,7 @@ import System.Process ( readProcess )
 
 ---------- Basic Types ----------
 
-type PID = Integer
+type PID = Int
 type GID = Integer
 type SID = Integer
 type TTY = Integer
@@ -24,9 +24,6 @@ type UnixTimestamp = Integer
 type Bytes = Integer
 type KiloBytes = Integer
 type Pages = Integer
-
-kBToBytes :: KiloBytes -> Bytes
-kBToBytes kB = 1024 * kB
 
 bytesTokB :: Bytes -> KiloBytes
 bytesTokB b = div b 1024
@@ -66,6 +63,9 @@ getPIDs = do
 getStat :: (Members '[Error String, IO] r) => Eff r Stat
 getStat = readAndParse "/proc/stat" pStat
 
+getCPUActive :: (Members '[Error String, IO] r) => Eff r Jiffies
+getCPUActive = extractCPUActive <$> getStat
+
 getCPUTime :: (Members '[Error String, IO] r) => Eff r Jiffies
 getCPUTime = extractCPUTime <$> getStat
 
@@ -76,6 +76,19 @@ extractCPUTime stat = let statCPU = statCPUTotal stat
      + statCPUSystem statCPU
      + statCPUIdle statCPU
      + statCPUIOWait statCPU
+     + statCPUIRQ statCPU
+     + statCPUSoftIRQ statCPU
+     + statCPUSteal statCPU
+     + statCPUGuest statCPU
+     + statCPUGuestNice statCPU
+
+extractCPUActive :: Stat -> Jiffies
+extractCPUActive stat = let statCPU = statCPUTotal stat
+    in statCPUUser statCPU
+     + statCPUNice statCPU
+     + statCPUSystem statCPU
+    -- + statCPUIdle statCPU
+    -- + statCPUIOWait statCPU
      + statCPUIRQ statCPU
      + statCPUSoftIRQ statCPU
      + statCPUSteal statCPU
@@ -141,11 +154,11 @@ getMemInfo = readAndParse "/proc/meminfo" pMemInfo
 getMemTotal :: (Members '[Error String, IO] r) => Eff r KiloBytes
 getMemTotal = memInfoMemTotal <$> getMemInfo
 
-getMemUsage :: (Members '[Error String, IO] r) => Eff r KiloBytes
-getMemUsage = calcMemUsage <$> getMemInfo
+getMemActive :: (Members '[Error String, IO] r) => Eff r KiloBytes
+getMemActive = calcMemActive <$> getMemInfo
 
-calcMemUsage :: MemInfo -> KiloBytes
-calcMemUsage mi = memInfoMemTotal mi
+calcMemActive :: MemInfo -> KiloBytes
+calcMemActive mi = memInfoMemTotal mi
                 - memInfoMemFree mi
                 - memInfoBuffers mi
                 - memInfoCached mi
@@ -237,8 +250,8 @@ pMemInfo = MemInfo
 getPIDStat :: (Members '[Error String, IO] r) => PID -> Eff r PIDStat
 getPIDStat pid = readAndParse ("/proc/" ++ show pid ++ "/stat") pPIDStat
 
-getPIDCPUTime :: (Members '[Error String, IO] r) => PID -> Eff r Ticks
-getPIDCPUTime = (extractPIDCPUTime <$>) . getPIDStat
+getProcessCPUTime :: (Members '[Error String, IO] r) => PID -> Eff r Ticks
+getProcessCPUTime = (extractPIDCPUTime <$>) . getPIDStat
 
 extractPIDCPUTime :: PIDStat -> Ticks
 extractPIDCPUTime stat = pidStatUTime stat + pidStatSTime stat
@@ -324,8 +337,8 @@ pPIDStat = PIDStat
 getPIDStatm :: (Members '[Error String, IO] r) => PID -> Eff r PIDStatm
 getPIDStatm pid = readAndParse ("/proc/" ++ show pid ++ "/statm") pPIDStatm
 
-getPIDMEMUsage :: (Members '[Error String, IO] r) => PID -> Eff r KiloBytes
-getPIDMEMUsage pid = getPIDStatm pid >>= send . calcPIDMemUsage
+getProcessMemUsage :: (Members '[Error String, IO] r) => PID -> Eff r KiloBytes
+getProcessMemUsage pid = getPIDStatm pid >>= send . calcPIDMemUsage
 
 calcPIDMemUsage :: PIDStatm -> IO KiloBytes
 calcPIDMemUsage statm = bytesTokB <$> pagesToBytes (pidStatmRSS statm)
