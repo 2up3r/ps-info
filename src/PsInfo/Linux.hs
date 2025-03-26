@@ -11,7 +11,7 @@ type PID = Int
 type MicroSec = Int
 
 getPIDs :: (Members '[Error String, IO] r) => Eff r [PID]
-getPIDs = send P.getPIDs
+getPIDs = P.getPIDs
 
 getProcessCPUUsage :: (Members '[Error String, IO] r) => PID -> MicroSec -> Eff r Double
 getProcessCPUUsage pid delay = do

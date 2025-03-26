@@ -10,6 +10,7 @@ import Control.Monad.Freer.Error ( throwError, Error )
 import Data.Char ( isDigit )
 import Data.Functor ( ($>) )
 import System.Directory ( listDirectory )
+import System.Directory.Internal.Prelude (tryIOError)
 import System.Process ( readProcess )
 
 ---------- Basic Types ----------
@@ -51,12 +52,12 @@ pLineUntil p = p <|> (A.takeTill (=='\n') *> A.endOfLine *> pLineUntil p)
 
 ---------- /PROC ----------
 
-getPIDs :: IO [PID]
+getPIDs :: (Members '[Error String, IO] r) => Eff r [PID]
 getPIDs = do
-    paths <- listDirectory "/proc"
-    let pidstrs = filter (all isDigit) paths
-        pids = read <$> pidstrs
-    pure pids
+    mPaths <- send $ tryIOError $ listDirectory "/proc"
+    case mPaths of
+        (Left err) -> throwError $ "Failed to get PIDs: " ++ show err
+        (Right paths) -> pure $ read <$> filter (all isDigit) paths
 
 ---------- /PROC/STAT ----------
 
