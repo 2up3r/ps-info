@@ -3,10 +3,18 @@ module PsInfo.Linux.Proc.ProcTests ( tests ) where
 
 import qualified PsInfo.Linux.Proc as P
 
+import qualified Test.HUnit as H
+
 import Data.Either ( isRight, fromLeft )
 import Control.Monad.Freer.Error ( runError )
 import Control.Monad.Freer ( runM )
-import qualified Test.HUnit as H
+
+testValidPIDs :: H.Test
+testValidPIDs = H.TestCase $ do
+    r <- runM $ runError P.getPIDs :: IO (Either String [P.PID])
+    case r of
+        (Left err) -> H.assertFailure $ "/proc should be accessable/correct: " ++ err
+        (Right pids) -> H.assertBool "There should be some active processes." $ not (null pids)
 
 testValidStat :: H.Test
 testValidStat = H.TestCase $ do
@@ -30,7 +38,8 @@ testValidPIDStatm = H.TestCase $ do
 
 tests :: H.Test
 tests = H.TestList
-    [ testValidStat
+    [ testValidPIDs
+    , testValidStat
     , testValidMemInfo
     , testValidPIDStat
     , testValidPIDStatm
