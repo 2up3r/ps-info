@@ -1,17 +1,16 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE InstanceSigs #-}
-module PsInfo.Darwin.Libproc 
+{-# LANGUAGE ForeignFunctionInterface, DataKinds, FlexibleContexts, GADTs #-}
+module PsInfo.Darwin.Libproc
     ( getListPids
     , getProcTaskInfo
     , ProcTaskInfo
     ) where
 -- https://github.com/phracker/MacOSX-SDKs/blob/041600eda65c6a668f66cb7d56b7d1da3e8bcc93/MacOSX10.5.sdk/usr/include/libproc.h#L85
 
+import Control.Monad.Freer ( send, Eff, Members )
+import Control.Monad.Freer.Error ( throwError, Error )
 import Foreign
 import Foreign.C.Types
 import Foreign.C.Error (getErrno, errnoToIOError)
-import Control.Monad (forM)
-
 
 foreign import ccall "proc_pidinfo"
     -- args: pid, flavor, arg, buffer, buffersize
@@ -44,13 +43,13 @@ instance Storable ProcTaskInfo where
     alignment _ = alignment (undefined :: CULong)
     peek ptr = ProcTaskInfo
         <$> peekByteOff ptr 0
-        <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 1)
+        <*> peekByteOff ptr (sizeOf (undefined :: CULong))
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 2)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 3)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 4)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 5)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6)
-        <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 1)
+        <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt))
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 2)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 3)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 4)
@@ -61,7 +60,7 @@ instance Storable ProcTaskInfo where
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 9)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 10)
         <*> peekByteOff ptr (sizeOf (undefined :: CULong) * 6 + sizeOf (undefined :: CInt) * 11)
-    poke _ _ = error "poke not implemented" 
+    poke _ _ = error "poke not implemented"
 
 foreign import ccall "proc_listpids"
     -- args: type, type_info, buffer, buffer_size
@@ -70,16 +69,20 @@ foreign import ccall "proc_listpids"
 _PROC_PIDTASKINFO :: CInt
 _PROC_PIDTASKINFO = 4
 
-getProcTaskInfo :: CInt -> IO (Either String ProcTaskInfo)
-getProcTaskInfo pid = alloca $ \ptr -> do
-    let ptrSize = fromIntegral (sizeOf (undefined :: ProcTaskInfo))
-    br <- c_proc_pidinfo pid _PROC_PIDTASKINFO 0 (castPtr ptr) ptrSize
-    if br == -1
-        then do
-            errno <- getErrno
-            let err = errnoToIOError "getProcTaskInfo" errno Nothing Nothing
-            return $ Left $ show err
-        else Right <$> peek ptr
+getProcTaskInfo :: (Members '[Error String, IO] r) => CInt -> Eff r ProcTaskInfo
+getProcTaskInfo pid = do
+    epti <- send $ alloca $ \ptr -> do
+        let ptrSize = fromIntegral (sizeOf (undefined :: ProcTaskInfo))
+        br <- c_proc_pidinfo pid _PROC_PIDTASKINFO 0 (castPtr ptr) ptrSize
+        if br == -1
+            then do
+                errno <- getErrno
+                let err = errnoToIOError "getProcTaskInfo" errno Nothing Nothing
+                return $ Left $ show err
+            else Right <$> peek ptr
+    case epti of
+        (Left err) -> throwError err
+        (Right pti) -> pure pti
 
 _PROC_ALL_PIDS :: CInt
 _PROC_ALL_PIDS = 1
@@ -87,24 +90,23 @@ _PROC_ALL_PIDS = 1
 _PROC_MAX_PID_COUNT :: Int
 _PROC_MAX_PID_COUNT = 4096
 
-getListPids :: IO (Either String [CInt])
-getListPids = allocaArray _PROC_MAX_PID_COUNT $ \bufferPtr -> do
-    let bufferSize = fromIntegral $ _PROC_MAX_PID_COUNT * sizeOf (undefined :: CInt)
-    bytes <- c_proc_listpids _PROC_ALL_PIDS 0 bufferPtr bufferSize
-    if bytes == -1
-        then do
-            errno <- getErrno
-            let err = errnoToIOError "getListPids" errno Nothing Nothing
-            return $ Left $ show err
-        else do
-            let numPids = (fromIntegral bytes) `div` (sizeOf (undefined :: CInt))
-            pids <- ptrToList bufferPtr numPids
-            return $ Right pids
+getListPids :: Members '[Error String, IO] r => Eff r [CInt]
+getListPids = do
+    epids <- send $ allocaArray _PROC_MAX_PID_COUNT $ \bufferPtr -> do
+        let bufferSize = fromIntegral $ _PROC_MAX_PID_COUNT * sizeOf (undefined :: CInt)
+        bytes <- c_proc_listpids _PROC_ALL_PIDS 0 bufferPtr bufferSize
+        if bytes == -1
+            then do
+                errno <- getErrno
+                let err = errnoToIOError "getListPids" errno Nothing Nothing
+                return $ Left $ show err
+            else do
+                let numPids = fromIntegral bytes `div` sizeOf (undefined :: CInt)
+                pids <- ptrToList bufferPtr numPids
+                return $ Right pids
+    case epids of
+        (Left err) -> throwError err
+        (Right pids) -> pure pids
 
 ptrToList :: Ptr CInt -> Int -> IO [CInt]
-ptrToList bufferPtr len = mapM (peekElemOff bufferPtr) [0 .. (len - 1)] 
--- ptrToList bufferPtr len = do
---     pids <- forM [0 .. (len - 1)] $ \i -> do
---         pid <- peekElemOff bufferPtr i
---         return pid
---     return pids
+ptrToList bufferPtr len = mapM (peekElemOff bufferPtr) [0 .. (len - 1)]

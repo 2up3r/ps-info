@@ -1,19 +1,25 @@
 module PsInfo.Darwin.Libproc.LibprocTests (tests) where
 
-import PsInfo.Darwin.Libproc
+import PsInfo.Darwin.Libproc as L
+
 import qualified Test.HUnit as H
-import Data.Either (isRight)
+
+import Control.Monad.Freer (runM)
+import Control.Monad.Freer.Error (runError)
 
 testGetListPidsSuccess :: H.Test
 testGetListPidsSuccess = H.TestCase $ do
-    pids <- getListPids
-    H.assertBool "getListPids should return items" $ isRight pids
+    epids <- runM $ runError L.getListPids
+    case epids of 
+        (Left err) -> H.assertFailure $ "getListPids should return items: " ++ err 
+        (Right pids) -> H.assertBool "Length of getListPids should not be zero" $ not (null pids)
 
 testGetProcTaskInfoSucess :: H.Test
 testGetProcTaskInfoSucess = H.TestCase $ do
-    pti <- getProcTaskInfo 1
-    putStrLn $ show pti
-    H.assertBool "getProcTaskInfo 1 (initial process) should give a value" $ isRight pti
+    epti <- (runM $ runError $ L.getProcTaskInfo 1 :: IO (Either String L.ProcTaskInfo))
+    case epti of
+        (Left err) -> H.assertFailure $ "getProcTaskInfo 1 (initial process) should give a value: " ++ err
+        (Right pti) -> pure ()
 
 tests :: H.Test
 tests = H.TestList 
