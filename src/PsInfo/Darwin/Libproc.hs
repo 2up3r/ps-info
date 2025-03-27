@@ -3,6 +3,24 @@ module PsInfo.Darwin.Libproc
     ( getListPids
     , getProcTaskInfo
     , ProcTaskInfo
+    , pti_virtual_size
+    , pit_resident_size
+    , pti_total_user
+    , pti_total_system
+    , pti_threads_user
+    , pti_threads_system
+    , pti_policy
+    , pti_faults
+    , pti_pageins
+    , pti_cow_faults
+    , pti_messages_sent
+    , pti_messages_received
+    , pti_syscalls_mach
+    , pti_syscalls_unix
+    , pti_csw
+    , pti_threadnum
+    , pti_numrunning
+    , pti_priority
     ) where
 -- https://github.com/phracker/MacOSX-SDKs/blob/041600eda65c6a668f66cb7d56b7d1da3e8bcc93/MacOSX10.5.sdk/usr/include/libproc.h#L85
 
