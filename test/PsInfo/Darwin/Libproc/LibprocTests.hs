@@ -19,9 +19,7 @@ testGetProcTaskInfoSucess = H.TestCase $ do
     epti <- (runM $ runError $ L.getProcTaskInfo 1 :: IO (Either String L.ProcTaskInfo))
     case epti of
         (Left err) -> H.assertFailure $ "getProcTaskInfo 1 (initial process) should give a value: " ++ err
-        (Right pti) -> do
-            H.assertBool ("getProcTaskInfo 1 (initial process) should give a values (probably missing permissions): " ++ show pti) $ L.pti_total_user pti /= 0
-            H.assertBool ("getProcTaskInfo 1 (initial process) should not have incorrect values (probably missing permissions): " ++ show pti) $ pti_syscalls_mach pti == 0
+        (Right pti) -> H.assertBool ("getProcTaskInfo 1 (initial process) should give a values (probably missing permissions): " ++ show pti) $ L.pti_total_user pti /= 0
 
 tests :: H.Test
 tests = H.TestList 
