@@ -10,22 +10,22 @@ testGetRusageSelf :: H.Test
 testGetRusageSelf = H.TestCase $ do 
     eru <- runM $ runError $ getRusage _RUSAGE_SELF
     case eru of
-        (Left err) -> H.assertFailure $ "getRusage 0 (RUSAGE_SELF) should not fail" ++ err
+        (Left err) -> H.assertFailure $ "getRusage 0 (RUSAGE_SELF) should not fail: " ++ err
         (Right _) -> pure ()
 
 testGetRusageChildren :: H.Test
 testGetRusageChildren = H.TestCase $ do 
     eru <- runM $ runError $ getRusage _RUSAGE_CHILDREN
     case eru of
-        (Left err) -> H.assertFailure $ "getRusage -1 (RUSAGE_CHILDREN) should not fail" ++ err
+        (Left err) -> H.assertFailure $ "getRusage -1 (RUSAGE_CHILDREN) should not fail: " ++ err
         (Right _) -> pure()
 
 testGetRusageFailure :: H.Test
 testGetRusageFailure = H.TestCase $ do 
-    eru <- runM $ runError $ getRusage 1
+    eru <- (runM $ runError $ getRusage 1 :: IO (Either String RUsage))
     case eru of
-        (Left err) -> H.assertFailure $ "getRusage 1 should fail" ++ err
-        (Right _) -> pure ()
+        (Left _) -> pure ()
+        (Right ru) -> H.assertFailure $ "getRusage 1 should fail: " ++ show ru
 
 tests :: H.Test
 tests = H.TestList 
