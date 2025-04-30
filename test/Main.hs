@@ -1,11 +1,11 @@
 module Main (main) where
 
-import PsInfo.PsInfoTests
-import qualified Test.HUnit as H
+import Test.HUnit
 
+import PsInfo.PsInfoTests (tests)
 
 main :: IO ()
 main = do 
-    counts <- H.runTestTT tests
-    print counts
+    _ <- runTestTT tests
+    pure ()
 
