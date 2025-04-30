@@ -373,3 +373,18 @@ pPIDStatm = PIDStatm
     <*> (A.space *> A.decimal)
     <* A.takeWhile (const True)
     <* A.endOfInput
+
+---------- sysconf ----------
+
+foreign import ccall unsafe "unistd.h sysconf"
+    -- long sysconf(int)
+    c_sysconf :: CInt -> IO CLong
+
+_SC_CLK_TCK :: CInt
+_SC_CLK_TCK = 3
+
+getSysconf :: Members '[Error String, IO] r => CInt -> Eff r CLong
+getSysconf conf = send $ c_sysconf conf
+
+getClockTicksPerSecond :: Members '[Error String, IO] r => Eff r CLong
+getClockTicksPerSecond = getSysconf _SC_CLK_TCK
