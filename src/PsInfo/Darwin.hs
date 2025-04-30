@@ -16,18 +16,12 @@ module PsInfo.Darwin
     ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (IOException, try)
 import Control.Monad (forM)
 import Foreign.C (CLLong)
-import Text.Read (readMaybe)
 
-import Control.Monad.Freer (Eff, Members, send, runM)
-import Control.Monad.Freer.Error (Error, throwError, runError)
-import System.Posix (getEffectiveUserID)
-import System.Process (readProcess)
-import System.Directory (findExecutable)
+import Control.Monad.Freer (Eff, Members, send)
+import Control.Monad.Freer.Error (Error, throwError)
 
-import PsInfo.Darwin.Libproc (ProcTaskInfo)
 import PsInfo.Util.Types (Percent, PID (..), MicroSecond)
 import qualified PsInfo.Darwin.Libproc as L
 import qualified PsInfo.Darwin.Mach as M
@@ -78,11 +72,11 @@ getProcessCPUUsage pid delay = do
 
 getProcessCPUUsages :: Members '[Error String, IO] r => [PID] -> MicroSecond -> Eff r [Maybe Percent]
 getProcessCPUUsages pids delay = do
-    pti0s <- safeGetProcTaskInfos pids
+    pti0s <- L.getProcTaskInfos pids
     let p0s = (pidTime <$>) <$> pti0s
     s0 <- send M.getMachAbsoluteTime
     send $ threadDelay (fromIntegral delay)
-    pti1s <- safeGetProcTaskInfos pids
+    pti1s <- L.getProcTaskInfos pids
     let p1s = (pidTime <$>) <$> pti1s
     s1 <- send M.getMachAbsoluteTime
     let ds = s1 - s0
@@ -105,7 +99,7 @@ getProcessMemUsage pid = do
 
 getProcessMemUsages :: Members '[Error String, IO] r => [PID] -> Eff r [Maybe Percent]
 getProcessMemUsages pids = do
-    ptis <- safeGetProcTaskInfos pids
+    ptis <- L.getProcTaskInfos pids
     total <- S.getSysctl [6, 24] :: Members '[Error String, IO] r => Eff r CLLong
     let rsss = (fromIntegral . L.pti_resident_size <$>) <$> ptis :: [Maybe Integer]
     if total == 0
@@ -130,7 +124,7 @@ getProcessTime pid = do
 getProcessTimes :: Members '[Error String, IO] r => [PID] -> Eff r [Maybe MicroSecond]
 getProcessTimes [] = pure []
 getProcessTimes pids = do
-    ptis <- safeGetProcTaskInfos pids
+    ptis <- L.getProcTaskInfos pids
     forM ptis getPTITime
     where
         getPTITime :: Members '[Error String, IO] r => Maybe L.ProcTaskInfo -> Eff r (Maybe MicroSecond)
@@ -145,40 +139,3 @@ getWallTime = do
     time <- send M.getMachAbsoluteTime
     mti <- M.getMachTimebaseInfo
     pure $ (time * fromIntegral (M.mti_number mti)) `div` fromIntegral (M.mti_denom mti)
-
-safeGetProcTaskInfos :: Members '[Error String, IO] r => [PID] -> Eff r [Maybe ProcTaskInfo]
-safeGetProcTaskInfos pids = do
-    let pids' = unpackPIDs pids
-    suid <- send hasSIUD
-    if suid
-        then send $ forM pids' getMaybePTI
-        else do
-            maybeResponse <- send $ runHelper pids'
-            case maybeResponse of
-                (Left err) -> throwError $ "Error in safeGetProcTaskInfo: " ++ err
-                (Right response) -> do
-                    let maybePTIs = readMaybe response :: Maybe [Maybe ProcTaskInfo]
-                    case maybePTIs of
-                        Nothing -> throwError "Error in safeGetProcTaskInfo: could not parse."
-                        (Just ptis) -> pure ptis
-    where
-        runHelper :: [Int] -> IO (Either String String)
-        runHelper pids' = do
-            maybeExe <- findExecutable "libproc-helper-exe"
-            case maybeExe of
-                Nothing -> pure $ Left "Could not find executable."
-                (Just exe) -> do
-                    er <- try $ readProcess exe (show <$> pids') "" :: IO (Either IOException String)
-                    case er of
-                        (Left e) -> pure $ Left $ show e
-                        (Right r) -> pure $ Right r
-        hasSIUD :: IO Bool
-        hasSIUD = (== 0) <$> getEffectiveUserID
-        unpackPIDs :: [PID] -> [Int]
-        unpackPIDs = ((\(PID pid) -> pid) <$>)
-        getMaybePTI :: Int -> IO (Maybe ProcTaskInfo)
-        getMaybePTI pid = do
-            epti <- runM $ runError $ L.getProcTaskInfo (fromIntegral pid) :: IO (Either String ProcTaskInfo)
-            case epti of
-                (Left _) -> pure Nothing
-                (Right pti) -> pure $ Just pti

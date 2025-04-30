@@ -6,6 +6,7 @@ import Test.HUnit
 
 import PsInfo.Darwin.Libproc
 import PsInfo.Util.Test
+import PsInfo.Util.Types
 
 testGetListPidsSuccess :: Test
 testGetListPidsSuccess = TestCase $ do
@@ -15,7 +16,7 @@ testGetListPidsSuccess = TestCase $ do
 
 testGetProcTaskInfoSuccess :: Test
 testGetProcTaskInfoSuccess = TestCase $ do
-    epti <- (runM $ runError $ getProcTaskInfo 1 :: IO (Either String ProcTaskInfo))
+    epti <- (runM $ runError $ getProcTaskInfo (PID 1) :: IO (Either String ProcTaskInfo))
     assertRight "getProcTaskInfo 1" epti
     mapM_ (assertPositive "getProcTaskInfo 1 (total system time)" . pti_total_system) epti
 

@@ -5,12 +5,12 @@ import Control.Monad (forM)
 import Foreign.C (CInt)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
+import Text.Read (readMaybe)
 
 import Control.Monad.Freer (Eff, runM, send)
 import Control.Monad.Freer.Error (Error, runError)
 
-import PsInfo.Darwin.Libproc (getProcTaskInfo, ProcTaskInfo)
-import Text.Read (readMaybe)
+import PsInfo.Darwin.Libproc (ProcTaskInfo, unsafeGetProcTaskInfo)
 
 main :: IO ()
 main = do
@@ -31,7 +31,7 @@ handler pids = do
             case mpid of
                 Nothing -> pure Nothing
                 (Just pid') -> do
-                    epti <- runM $ runError $ getProcTaskInfo pid' :: IO (Either String ProcTaskInfo)
+                    epti <- runM $ runError $ unsafeGetProcTaskInfo pid' :: IO (Either String ProcTaskInfo)
                     case epti of
                         (Left _) -> pure Nothing
                         (Right pti) -> pure $ Just pti
