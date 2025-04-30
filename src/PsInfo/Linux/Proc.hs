@@ -1,50 +1,61 @@
-{-# LANGUAGE OverloadedStrings, DataKinds, FlexibleContexts, GADTs #-}
-module PsInfo.Linux.Proc where
+{-# LANGUAGE ForeignFunctionInterface, OverloadedStrings, DataKinds #-}
+module PsInfo.Linux.Proc
+    ( getPIDs
+    , getStat
+    , Stat (..)
+    , StatCPU (..)
+    , getCPUActive
+    , getCPUTime
+    , getMemInfo
+    , getMemTotal
+    , getMemActive
+    , MemInfo (..)
+    , getPIDStat
+    , PIDStat (..)
+    , ProcessState (..)
+    , getProcessCPUTime
+    , getPIDStatm
+    , PIDStatm (..)
+    , getProcessMemUsage
+    , getClockTicksPerSecond
+    ) where
 
+import Control.Applicative ((<|>))
+import Data.Char (isDigit)
+import Data.Functor (($>))
+import Foreign.C.Types (CInt (..), CLong (..))
+
+import Control.Monad.Freer (Eff, Members, send)
+import Control.Monad.Freer.Error (Error, throwError)
+import System.Directory (listDirectory)
+import System.Directory.Internal.Prelude (tryIOError)
+import System.Process (readProcess)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B
 
-import Control.Applicative ( (<|>) )
-import Control.Monad.Freer ( send, Eff, Members )
-import Control.Monad.Freer.Error ( throwError, Error )
-import Data.Char ( isDigit )
-import Data.Functor ( ($>) )
-import System.Directory ( listDirectory )
-import System.Directory.Internal.Prelude (tryIOError)
-import System.Process ( readProcess )
+import PsInfo.Util.Types
 
 ---------- Basic Types ----------
 
-type PID = Int
-type GID = Integer
-type SID = Integer
-type TTY = Integer
-type Ticks = Integer
-type Jiffies = Integer
-type UnixTimestamp = Integer
-type Bytes = Integer
-type KiloBytes = Integer
-type Pages = Integer
-
-bytesTokB :: Bytes -> KiloBytes
+bytesTokB :: Byte -> KiloByte
 bytesTokB b = div b 1024
 
-getPageSize :: IO Integer
+getPageSize :: IO Page
 getPageSize = read <$> readProcess "getconf" ["PAGE_SIZE"] ""
 
-pagesToBytes :: Pages -> IO Bytes
+pagesToBytes :: Page -> IO Byte
 pagesToBytes p = (p *) <$> getPageSize
 
 ---------- General Helpers ----------
 
-readAndParse :: (Members '[Error String, IO] r) => FilePath -> A.Parser a -> Eff r a
+readAndParse :: Members '[Error String, IO] r => FilePath -> A.Parser a -> Eff r a
 readAndParse fp p = do
     raw <- send $ B.readFile fp
     case A.parse p raw of
         (A.Done _ res) -> pure res
         (A.Partial pRest) -> case pRest "" of
             (A.Done _ res) -> pure res
-            _ -> throwError ("Failed to parse nothing!" :: String)
+            _ -> throwError ("readAndParse: Failed to parse nothing!" :: String)
         (A.Fail _ _ err) -> throwError err
 
 pLineUntil :: A.Parser a -> A.Parser a
@@ -52,61 +63,59 @@ pLineUntil p = p <|> (A.takeTill (=='\n') *> A.endOfLine *> pLineUntil p)
 
 ---------- /PROC ----------
 
-getPIDs :: (Members '[Error String, IO] r) => Eff r [PID]
+getPIDs :: Members '[Error String, IO] r => Eff r [PID]
 getPIDs = do
     mPaths <- send $ tryIOError $ listDirectory "/proc"
     case mPaths of
         (Left err) -> throwError $ "Failed to get PIDs: " ++ show err
-        (Right paths) -> pure $ read <$> filter (all isDigit) paths
+        (Right paths) -> pure $ PID . read <$> filter (all isDigit) paths
 
 ---------- /PROC/STAT ----------
 
-getStat :: (Members '[Error String, IO] r) => Eff r Stat
+getStat :: Members '[Error String, IO] r => Eff r Stat
 getStat = readAndParse "/proc/stat" pStat
 
-getCPUActive :: (Members '[Error String, IO] r) => Eff r Jiffies
+getCPUActive :: Members '[Error String, IO] r => Eff r Jiffy
 getCPUActive = extractCPUActive <$> getStat
+    where
+        extractCPUActive :: Stat -> Jiffy
+        extractCPUActive stat = let statCPU = statCPUTotal stat
+            in statCPUUser statCPU
+            + statCPUNice statCPU
+            + statCPUSystem statCPU
+            + statCPUIRQ statCPU
+            + statCPUSoftIRQ statCPU
+            + statCPUSteal statCPU
+            + statCPUGuest statCPU
+            + statCPUGuestNice statCPU
 
-getCPUTime :: (Members '[Error String, IO] r) => Eff r Jiffies
+getCPUTime :: Members '[Error String, IO] r => Eff r Jiffy
 getCPUTime = extractCPUTime <$> getStat
-
-extractCPUTime :: Stat -> Jiffies
-extractCPUTime stat = let statCPU = statCPUTotal stat
-    in statCPUUser statCPU
-     + statCPUNice statCPU
-     + statCPUSystem statCPU
-     + statCPUIdle statCPU
-     + statCPUIOWait statCPU
-     + statCPUIRQ statCPU
-     + statCPUSoftIRQ statCPU
-     + statCPUSteal statCPU
-     + statCPUGuest statCPU
-     + statCPUGuestNice statCPU
-
-extractCPUActive :: Stat -> Jiffies
-extractCPUActive stat = let statCPU = statCPUTotal stat
-    in statCPUUser statCPU
-     + statCPUNice statCPU
-     + statCPUSystem statCPU
-    -- + statCPUIdle statCPU
-    -- + statCPUIOWait statCPU
-     + statCPUIRQ statCPU
-     + statCPUSoftIRQ statCPU
-     + statCPUSteal statCPU
-     + statCPUGuest statCPU
-     + statCPUGuestNice statCPU
+    where
+        extractCPUTime :: Stat -> Jiffy
+        extractCPUTime stat = let statCPU = statCPUTotal stat
+            in statCPUUser statCPU
+            + statCPUNice statCPU
+            + statCPUSystem statCPU
+            + statCPUIdle statCPU
+            + statCPUIOWait statCPU
+            + statCPUIRQ statCPU
+            + statCPUSoftIRQ statCPU
+            + statCPUSteal statCPU
+            + statCPUGuest statCPU
+            + statCPUGuestNice statCPU
 
 data StatCPU = StatCPU
-    { statCPUUser      :: Jiffies
-    , statCPUNice      :: Jiffies
-    , statCPUSystem    :: Jiffies
-    , statCPUIdle      :: Jiffies
-    , statCPUIOWait    :: Jiffies
-    , statCPUIRQ       :: Jiffies
-    , statCPUSoftIRQ   :: Jiffies
-    , statCPUSteal     :: Jiffies
-    , statCPUGuest     :: Jiffies
-    , statCPUGuestNice :: Jiffies
+    { statCPUUser      :: Jiffy
+    , statCPUNice      :: Jiffy
+    , statCPUSystem    :: Jiffy
+    , statCPUIdle      :: Jiffy
+    , statCPUIOWait    :: Jiffy
+    , statCPUIRQ       :: Jiffy
+    , statCPUSoftIRQ   :: Jiffy
+    , statCPUSteal     :: Jiffy
+    , statCPUGuest     :: Jiffy
+    , statCPUGuestNice :: Jiffy
     } deriving (Eq, Show)
 
 data Stat = Stat
@@ -149,57 +158,57 @@ pStat = Stat
 
 ---------- /PROC/MEMINFO ----------
 
-getMemInfo :: (Members '[Error String, IO] r) => Eff r MemInfo
+getMemInfo :: Members '[Error String, IO] r => Eff r MemInfo
 getMemInfo = readAndParse "/proc/meminfo" pMemInfo
 
-getMemTotal :: (Members '[Error String, IO] r) => Eff r KiloBytes
+getMemTotal :: Members '[Error String, IO] r => Eff r KiloByte
 getMemTotal = memInfoMemTotal <$> getMemInfo
 
-getMemActive :: (Members '[Error String, IO] r) => Eff r KiloBytes
+getMemActive :: Members '[Error String, IO] r => Eff r KiloByte
 getMemActive = calcMemActive <$> getMemInfo
 
-calcMemActive :: MemInfo -> KiloBytes
+calcMemActive :: MemInfo -> KiloByte
 calcMemActive mi = memInfoMemTotal mi
                 - memInfoMemFree mi
                 - memInfoBuffers mi
                 - memInfoCached mi
 
 data MemInfo = MemInfo
-    { memInfoMemTotal     :: KiloBytes
-    , memInfoMemFree      :: KiloBytes
-    , memInfoMemAvailable :: KiloBytes
-    , memInfoBuffers      :: KiloBytes
-    , memInfoCached       :: KiloBytes
-    , memInfoSwapCached   :: KiloBytes
-    , memInfoActive       :: KiloBytes
-    , memInfoInactive     :: KiloBytes
-    , memInfoActiveAnon   :: KiloBytes
-    , memInfoInactiveAnon :: KiloBytes
-    , memInfoActiveFile   :: KiloBytes
-    , memInfoInactiveFile :: KiloBytes
-    , memInfoUnevictable  :: KiloBytes
-    , memInfoMlocked      :: KiloBytes
-    , memInfoSwapTotal    :: KiloBytes
-    , memInfoSwapFree     :: KiloBytes
-    , memInfoDirty        :: KiloBytes
-    , memInfoWriteback    :: KiloBytes
-    , memInfoAnonPages    :: KiloBytes
-    , memInfoMapped       :: KiloBytes
-    , memInfoShmem        :: KiloBytes
-    , memInfoSlab         :: KiloBytes
-    , memInfoSReclaimable :: KiloBytes
-    , memInfoSUnreclaim   :: KiloBytes
-    , memInfoKernelStack  :: KiloBytes
-    , memInfoPageTables   :: KiloBytes
-    , memInfoNFSUnstable  :: KiloBytes
-    , memInfoBounce       :: KiloBytes
-    , memInfoWritebackTmp :: KiloBytes
-    , memInfoCommitLimit  :: KiloBytes
-    , memInfoCommittedAS  :: KiloBytes
-    , memInfoVmallocTotal :: KiloBytes
-    , memInfoVmallocUsed  :: KiloBytes
-    , memInfoVmallocChunk :: KiloBytes
-    , memInfoPercpu       :: KiloBytes
+    { memInfoMemTotal     :: KiloByte
+    , memInfoMemFree      :: KiloByte
+    , memInfoMemAvailable :: KiloByte
+    , memInfoBuffers      :: KiloByte
+    , memInfoCached       :: KiloByte
+    , memInfoSwapCached   :: KiloByte
+    , memInfoActive       :: KiloByte
+    , memInfoInactive     :: KiloByte
+    , memInfoActiveAnon   :: KiloByte
+    , memInfoInactiveAnon :: KiloByte
+    , memInfoActiveFile   :: KiloByte
+    , memInfoInactiveFile :: KiloByte
+    , memInfoUnevictable  :: KiloByte
+    , memInfoMlocked      :: KiloByte
+    , memInfoSwapTotal    :: KiloByte
+    , memInfoSwapFree     :: KiloByte
+    , memInfoDirty        :: KiloByte
+    , memInfoWriteback    :: KiloByte
+    , memInfoAnonPages    :: KiloByte
+    , memInfoMapped       :: KiloByte
+    , memInfoShmem        :: KiloByte
+    , memInfoSlab         :: KiloByte
+    , memInfoSReclaimable :: KiloByte
+    , memInfoSUnreclaim   :: KiloByte
+    , memInfoKernelStack  :: KiloByte
+    , memInfoPageTables   :: KiloByte
+    , memInfoNFSUnstable  :: KiloByte
+    , memInfoBounce       :: KiloByte
+    , memInfoWritebackTmp :: KiloByte
+    , memInfoCommitLimit  :: KiloByte
+    , memInfoCommittedAS  :: KiloByte
+    , memInfoVmallocTotal :: KiloByte
+    , memInfoVmallocUsed  :: KiloByte
+    , memInfoVmallocChunk :: KiloByte
+    , memInfoPercpu       :: KiloByte
     -- ... may be more fields dependant on system
     }
 
@@ -248,13 +257,13 @@ pMemInfo = MemInfo
 
 ---------- /PROC/PID/STAT ----------
 
-getPIDStat :: (Members '[Error String, IO] r) => PID -> Eff r PIDStat
+getPIDStat :: Members '[Error String, IO] r => PID -> Eff r PIDStat
 getPIDStat pid = readAndParse ("/proc/" ++ show pid ++ "/stat") pPIDStat
 
-getProcessCPUTime :: (Members '[Error String, IO] r) => PID -> Eff r Ticks
+getProcessCPUTime :: Members '[Error String, IO] r => PID -> Eff r Jiffy
 getProcessCPUTime = (extractPIDCPUTime <$>) . getPIDStat
 
-extractPIDCPUTime :: PIDStat -> Ticks
+extractPIDCPUTime :: PIDStat -> Jiffy
 extractPIDCPUTime stat = pidStatUTime stat + pidStatSTime stat
 
 data ProcessState = Running
@@ -278,18 +287,18 @@ data PIDStat = PIDStat
     , pidStatCMinFlt     :: Integer
     , pidStatMajFlt      :: Integer
     , pidStatCMajFlt     :: Integer
-    , pidStatUTime       :: Ticks
-    , pidStatSTime       :: Ticks
-    , pidStatCUTime      :: Ticks
-    , pidStatCSTime      :: Ticks
+    , pidStatUTime       :: Tick
+    , pidStatSTime       :: Tick
+    , pidStatCUTime      :: Tick
+    , pidStatCSTime      :: Tick
     , pidStatPriority    :: Integer
     , pidStatNice        :: Integer
     , pidStatNumThreads  :: Integer
     , pidStatItRealValue :: Integer
-    , pidStatStartTime   :: Ticks
-    , pidStatVSize       :: Bytes
-    , pidStatRSS         :: Pages
-    , pidStatRSSLim      :: Bytes
+    , pidStatStartTime   :: Tick
+    , pidStatVSize       :: Byte
+    , pidStatRSS         :: Page
+    , pidStatRSSLim      :: Byte
     -- ... memory/scheduling fields + system spasific
     } deriving (Eq, Show)
 
@@ -304,15 +313,14 @@ pPIDStatState = ("R" $> Running)
             <|> ("T" $> Terminated)
 
 pPIDStat :: A.Parser PIDStat
-pPIDStat = PIDStat
-    <$> A.decimal
+pPIDStat = PIDStat . PID <$> A.decimal
     <*> (A.space *> pPIDStatComm)
     <*> (A.space *> pPIDStatState)
-    <*> (A.space *> A.decimal)
-    <*> (A.space *> A.signed A.decimal)
-    <*> (A.space *> A.decimal)
-    <*> (A.space *> A.signed A.decimal)
-    <*> (A.space *> A.signed A.decimal)
+    <*> (PID <$> (A.space *> A.decimal))
+    <*> (GID <$> (A.space *> A.signed A.decimal))
+    <*> (SID <$> (A.space *> A.decimal))
+    <*> (TTY <$> (A.space *> A.signed A.decimal))
+    <*> (GID <$> (A.space *> A.signed A.decimal))
     <*> (A.space *> A.decimal)
     <*> (A.space *> A.decimal)
     <*> (A.space *> A.decimal)
@@ -335,23 +343,23 @@ pPIDStat = PIDStat
 
 ---------- /PROC/PID/STATM ----------
 
-getPIDStatm :: (Members '[Error String, IO] r) => PID -> Eff r PIDStatm
+getPIDStatm :: Members '[Error String, IO] r => PID -> Eff r PIDStatm
 getPIDStatm pid = readAndParse ("/proc/" ++ show pid ++ "/statm") pPIDStatm
 
-getProcessMemUsage :: (Members '[Error String, IO] r) => PID -> Eff r KiloBytes
+getProcessMemUsage :: Members '[Error String, IO] r => PID -> Eff r KiloByte
 getProcessMemUsage pid = getPIDStatm pid >>= send . calcPIDMemUsage
 
-calcPIDMemUsage :: PIDStatm -> IO KiloBytes
+calcPIDMemUsage :: PIDStatm -> IO KiloByte
 calcPIDMemUsage statm = bytesTokB <$> pagesToBytes (pidStatmRSS statm)
 
 data PIDStatm = PIDStatm
-    { pidStatmSize   :: Pages
-    , pidStatmRSS    :: Pages
-    , pidStatmShared :: Pages
-    , pidStatmText   :: Pages
-    , pidStatmLib    :: Pages
-    , pidStatmData   :: Pages
-    , pidStatmDT     :: Pages
+    { pidStatmSize   :: Page
+    , pidStatmRSS    :: Page
+    , pidStatmShared :: Page
+    , pidStatmText   :: Page
+    , pidStatmLib    :: Page
+    , pidStatmData   :: Page
+    , pidStatmDT     :: Page
     } deriving (Eq, Show)
 
 pPIDStatm :: A.Parser PIDStatm
