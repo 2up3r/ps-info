@@ -1,36 +1,17 @@
-{-# LANGUAGE ForeignFunctionInterface, DataKinds, FlexibleContexts, GADTs #-}
+{-# LANGUAGE ForeignFunctionInterface, DataKinds #-}
 module PsInfo.Darwin.Mach
-    ( getTaskForPid
     , getTaskInfoForTask
-    , TimeValue
-    , TaskBasicInfo
-    , tbi_virtural_memory
-    , tbi_resident_size
-    , tbi_resident_size_max
-    , tbi_user_time
-    , tbi_system_time
-    , tbi_policy
-    , tbi_suspend_count
+    , TimeValue (..)
+    , TaskBasicInfo (..)
     ) where
--- https://github.com/apple-oss-distributions/xnu/
 
-import Foreign
-import Foreign.C.Types
-import Control.Monad.Freer (Members, Eff, send)
-import Control.Monad.Freer.Error (Error, throwError)
+import Foreign (Ptr, Storable(..), alloca, castPtr)
+import Foreign.C.Types (CInt(..), CLong, CUInt(..), CULLong(..))
 
-foreign import ccall "sys/mach.h task_for_pid"
-    -- args: target_port, pid, task
-    c_task_for_pid :: CInt -> CInt -> Ptr CInt -> IO CInt
+import Control.Monad.Freer (Eff, Members)
+import Control.Monad.Freer.Error (Error)
 
-foreign import ccall "sys/mach.h task_info"
-    -- args: task, flavor, task_info, task_info_count
-    c_task_info :: CInt -> CInt -> Ptr TaskBasicInfo -> Ptr CInt -> IO CInt
-
-foreign import ccall "mach_host_self"
-    c_mach_host_self :: IO CInt
-
-type Bytes = CLong
+import PsInfo.Util.Effect (eitherToEff)
 
 data TimeValue = TimeValue
     { tv_seconds :: CInt
@@ -48,9 +29,9 @@ instance Storable TimeValue where
         pokeByteOff ptr (sizeOf (undefined :: CInt)) ms
 
 data TaskBasicInfo = TaskBasicInfo
-    { tbi_virtural_memory :: Bytes
-    , tbi_resident_size :: Bytes
-    , tbi_resident_size_max :: Bytes
+    { tbi_virtural_memory :: CLong
+    , tbi_resident_size :: CLong
+    , tbi_resident_size_max :: CLong
     , tbi_user_time :: TimeValue
     , tbi_system_time :: TimeValue
     , tbi_policy :: CInt
@@ -72,34 +53,43 @@ instance Storable TaskBasicInfo where
         <*> peekByteOff ptr (sizeOf (undefined :: CLong) * 3 + sizeOf (undefined :: TimeValue) * 2 + sizeOf (undefined :: CInt))
     poke _ _ = error "poke not implemented"
 
-_MACH_TASK_BASIC_INFO :: CInt
+foreign import ccall unsafe "sys/mach.h mach_host_self"
+    -- mach_port_t mach_host_self(void)
+    c_mach_host_self :: IO CUInt
+
+foreign import ccall unsafe "sys/mach.h task_for_pid"
+    -- kern_return_t task_for_pid(mach_port_name_t target_tport, int pid, mach_port_name_t *t)
+    c_task_for_pid :: CUInt -> CInt -> Ptr CUInt -> IO CInt
+
+foreign import ccall unsafe "sys/mach.h task_info"
+    -- kern_return_t task_info(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt)
+    c_task_info :: CUInt -> CUInt -> Ptr () -> Ptr CUInt -> IO CInt
+
+_MACH_TASK_BASIC_INFO :: CUInt
 _MACH_TASK_BASIC_INFO = 20
 
-getTaskForPid :: (Members '[Error String, IO] r) => CInt -> Eff r CInt
-getTaskForPid pid = do
-    et <- send $ alloca $ \ptr -> do
-        host <- c_mach_host_self
-        kr <- c_task_for_pid host pid ptr
-        if kr == 0
-            then Right <$> peek ptr
-            else return $ Left $ "getTaskForPid failed! reason:" <> showKR kr
-    case et of
-        (Left err) -> throwError err
-        (Right t) -> pure t
+_HOST_CPU_LOAD_INFO :: CInt
+_HOST_CPU_LOAD_INFO = 3
 
-getTaskInfoForTask :: (Members '[Error String, IO] r) => CInt -> Eff r TaskBasicInfo
-getTaskInfoForTask task = do
-    etbi <- send $ alloca $ \infoPtr -> alloca $ \sizePtr -> do
-        poke sizePtr (fromIntegral (sizeOf (undefined :: TaskBasicInfo)) :: CInt)
-        kr <- c_task_info task _MACH_TASK_BASIC_INFO infoPtr sizePtr
-        if kr == 0
-            then Right <$> peek infoPtr
-            else return $ Left $ "getTaskInfoForTask failed! reason:" <> showKR kr
-    case etbi of
-        (Left err) -> throwError err
-        (Right tbi) -> pure tbi
+_CPU_STATE_MAX :: CUInt
+_CPU_STATE_MAX = 4
 
--- https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/mach/kern_return.h
+getTaskForPid :: Members '[Error String, IO] r => CInt -> Eff r CUInt
+getTaskForPid pid = eitherToEff $ alloca $ \ptr -> do
+    host <- c_mach_host_self
+    kr <- c_task_for_pid host pid ptr
+    if kr == 0
+        then Right <$> peek ptr
+        else return $ Left $ "getTaskForPid failed! reason:" <> showKR kr
+
+getTaskInfoForTask :: Members '[Error String, IO] r => CUInt -> Eff r TaskBasicInfo
+getTaskInfoForTask task = eitherToEff $ alloca $ \infoPtr -> alloca $ \sizePtr -> do
+    poke sizePtr (fromIntegral (sizeOf (undefined :: TaskBasicInfo)) :: CUInt)
+    kr <- c_task_info task _MACH_TASK_BASIC_INFO (castPtr infoPtr) sizePtr
+    if kr == 0
+        then Right <$> peek infoPtr
+        else return $ Left $ "getTaskInfoForTask failed! reason:" <> showKR kr
+
 showKR :: CInt -> String
 showKR 0 = "KERN_SUCCESS"
 showKR 1 = "KERN_INVALID_ADDRESS"
