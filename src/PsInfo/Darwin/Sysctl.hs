@@ -1,52 +1,47 @@
-{-# LANGUAGE ForeignFunctionInterface, DataKinds, FlexibleContexts, GADTs #-}
-module PsInfo.Darwin.Sysctl 
+{-# LANGUAGE ForeignFunctionInterface, DataKinds #-}
+module PsInfo.Darwin.Sysctl
     ( getSysctl
     ) where
--- https://github.com/phracker/MacOSX-SDKs/blob/041600eda65c6a668f66cb7d56b7d1da3e8bcc93/MacOSX10.15.sdk/System/Library/Frameworks/Kernel.framework/Versions/A/Headers/sys/sysctl.h
--- https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
 
-import Foreign
-import Foreign.C.Types
-import Foreign.C.Error (getErrno, errnoToIOError)
-import Foreign.C.String (peekCString)
-import Control.Monad.Freer (Members, Eff, send, runM)
-import Control.Monad.Freer.Error (Error, throwError, runError)
+import Foreign (Ptr, Storable(peek, poke), alloca, castPtr, mallocArray, nullPtr, pokeArray)
+import Foreign.C.Error (errnoToIOError, getErrno)
+import Foreign.C.Types (CInt(..), CSize(..), CUInt(..))
 
-foreign import ccall "sysctl"
-    -- args: name, namelen, oldp, oldlenp, newp, newlenp
+import Control.Monad.Freer (Members, Eff, runM)
+import Control.Monad.Freer.Error (Error, runError)
+
+import PsInfo.Util.Effect (eitherToEff)
+
+foreign import ccall unsafe "sysctl"
+    -- int sysctl(int *, u_int, void *, size_t *oldlenp, void *, size_t newlen)
     c_sysctl :: Ptr CInt -> CUInt -> Ptr () -> Ptr CSize -> Ptr () -> CSize -> IO CInt
 
 getSysctlSize :: (Members '[Error String, IO] r) => [CInt] -> Eff r CSize
-getSysctlSize name = do 
-    es <- send $ alloca $ \sizePtr -> do
-        let len = fromIntegral $ length name
-        namePtr <- listToPtr name
-        poke sizePtr (0 :: CSize)
-        kr <- c_sysctl namePtr len nullPtr sizePtr nullPtr 0
-        if kr == -1
-            then Left <$> getErrnoStr "getSysctlSize"
-            else Right <$> peek sizePtr
-    case es of
-        (Left err) -> throwError err
-        (Right s) -> pure s
+getSysctlSize name = eitherToEff $ alloca $ \sizePtr -> do
+    let len = fromIntegral $ length name
+    namePtr <- listToPtr name
+    poke sizePtr (0 :: CSize)
+    kr <- c_sysctl namePtr len nullPtr sizePtr nullPtr 0
+    if kr == -1
+        then Left <$> getErrnoStr ("getSysctlSize " ++ show kr)
+        else Right <$> peek sizePtr
 
-getSysctl :: (Members '[Error String, IO] r) => [CInt] -> Eff r String
-getSysctl name = do
-    ec <- send $ alloca $ \bufferPtr -> alloca $ \sizePtr -> do
-        let len = fromIntegral $ length name
-        namePtr <- listToPtr name
-        maybeSize <- runM $ runError $ getSysctlSize name
-        case maybeSize of
-            (Left err) -> return $ Left err
-            (Right size) -> do
-                poke sizePtr size
-                kr <- c_sysctl namePtr len (castPtr bufferPtr) sizePtr nullPtr 0
-                if kr == 0
-                    then Right <$> peekCString bufferPtr
-                    else Left <$> getErrnoStr "getSysctl"
-    case ec of 
-        (Left err) -> throwError err
-        (Right c) -> pure c
+getSysctl' :: (Storable a) => [CInt] -> IO (Either String a)
+getSysctl' name = alloca $ \bufferPtr -> alloca $ \sizePtr -> do
+    let len = fromIntegral $ length name
+    namePtr <- listToPtr name
+    maybeSize <- runM $ runError $ getSysctlSize name
+    case maybeSize of
+        (Left err) -> return $ Left err
+        (Right size) -> do
+            poke sizePtr size
+            kr <- c_sysctl namePtr len (castPtr bufferPtr) sizePtr nullPtr 0
+            if kr == 0
+                then Right <$> peek bufferPtr
+                else Left <$> getErrnoStr ("getSysctl " ++ show kr)
+
+getSysctl :: (Storable a, Members '[Error String, IO] r) => [CInt] -> Eff r a
+getSysctl name = eitherToEff $ getSysctl' name
 
 listToPtr :: (Storable a) => [a] -> IO (Ptr a)
 listToPtr xs = do
