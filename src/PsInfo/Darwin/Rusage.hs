@@ -1,40 +1,20 @@
-{-# LANGUAGE ForeignFunctionInterface, DataKinds, FlexibleContexts, GADTs #-}
+{-# LANGUAGE ForeignFunctionInterface, DataKinds #-}
 module PsInfo.Darwin.Rusage 
     ( getRusage
-    , RUsage
+    , RUsage (..)
+    , Timeval (..)
     , _RUSAGE_SELF
     , _RUSAGE_CHILDREN
-    , ru_utime
-    , ru_stime
-    , ru_maxrrs
-    , ru_ixrrs
-    , ru_idrss
-    , ru_isrrs
-    , ru_minflt
-    , ru_majflt
-    , ru_nswap
-    , ru_inblock
-    , ru_oublock
-    , ru_msgsnd
-    , ru_msgrcv
-    , ru_nsignals
-    , ru_nvcsw
-    , ru_nivcsw
-    , Timeval
-    , tv_sec
-    , tv_usec
     ) where
--- https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getrusage.2.html
 
-import Control.Monad.Freer (Members, Eff, send)
-import Control.Monad.Freer.Error (Error, throwError)
-import Foreign
-import Foreign.C.Types
+import Foreign (Ptr, Storable(..), alloca)
 import Foreign.C (getErrno, errnoToIOError)
+import Foreign.C.Types (CInt(..), CLong)
 
-foreign import ccall "sys/resource.h getrusage"
-    -- args: who, output
-    c_getrusage :: CInt -> Ptr RUsage -> IO CInt
+import Control.Monad.Freer ( Members, Eff )
+import Control.Monad.Freer.Error ( Error )
+
+import PsInfo.Util.Effect ( eitherToEff )
 
 data Timeval = Timeval 
     { tv_sec :: CLong
@@ -92,23 +72,24 @@ instance Storable RUsage where
         <*> peekByteOff ptr (sizeOf (undefined :: Timeval) * 2 + sizeOf (undefined :: CLong) * 13)
     poke _ _ = error "poke not implemented"
 
-getRusage :: (Members '[Error String, IO] r) => CInt -> Eff r RUsage
-getRusage who = do
-    eru <- send $ alloca $ \rusagePtr -> do
-        kr <- c_getrusage who rusagePtr
-        if kr == 0
-            then do
-                rusage <- peek rusagePtr
-                return $ Right rusage
-            else do
-                errno <- getErrno
-                let err = errnoToIOError "getRusage" errno Nothing Nothing
-                return $ Left $ show err
-    case eru of
-        (Left err) -> throwError err
-        (Right ru) -> pure ru
+foreign import ccall unsafe "sys/resource.h getrusage"
+    -- args: who, output
+    c_getrusage :: CInt -> Ptr RUsage -> IO CInt
 
 _RUSAGE_SELF :: CInt
 _RUSAGE_SELF = 0
+
 _RUSAGE_CHILDREN :: CInt
 _RUSAGE_CHILDREN = -1
+
+getRusage :: Members '[Error String, IO] r => CInt -> Eff r RUsage
+getRusage who = eitherToEff $ alloca $ \rusagePtr -> do
+    kr <- c_getrusage who rusagePtr
+    if kr == 0
+        then do
+            rusage <- peek rusagePtr
+            return $ Right rusage
+        else do
+            errno <- getErrno
+            let err = errnoToIOError "getRusage" errno Nothing Nothing
+            return $ Left $ show err
