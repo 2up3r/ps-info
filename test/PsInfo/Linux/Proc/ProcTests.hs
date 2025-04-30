@@ -1,46 +1,94 @@
-{-# LANGUAGE OverloadedStrings, DataKinds, FlexibleContexts, GADTs #-}
-module PsInfo.Linux.Proc.ProcTests ( tests ) where
+{-# LANGUAGE OverloadedStrings, DataKinds #-}
+module PsInfo.Linux.Proc.ProcTests (tests) where
 
-import qualified PsInfo.Linux.Proc as P
+import Control.Monad.Freer.Error (runError)
+import Control.Monad.Freer (runM)
+import Test.HUnit
 
-import qualified Test.HUnit as H
+import PsInfo.Linux.Proc
+import PsInfo.Util.Test
+import PsInfo.Util.Types
 
-import Data.Either ( isRight, fromLeft )
-import Control.Monad.Freer.Error ( runError )
-import Control.Monad.Freer ( runM )
+testValidPIDs :: Test
+testValidPIDs = TestCase $ do
+    epids <- runM $ runError getPIDs
+    assertRight "getPIDs" epids
+    mapM_ (assertNotEmpty "getPIDs") epids
 
-testValidPIDs :: H.Test
-testValidPIDs = H.TestCase $ do
-    r <- runM $ runError P.getPIDs :: IO (Either String [P.PID])
-    case r of
-        (Left err) -> H.assertFailure $ "/proc should be accessable/correct: " ++ err
-        (Right pids) -> H.assertBool "There should be some active processes." $ not (null pids)
+testValidStat :: Test
+testValidStat = TestCase $ do
+    estat <- runM $ runError getStat
+    assertRight "getStat" estat
 
-testValidStat :: H.Test
-testValidStat = H.TestCase $ do
-    r <- runM $ runError P.getStat :: IO (Either String P.Stat)
-    H.assertBool ("/proc/stat should be accessable/correct: " ++ fromLeft "" r) $ isRight r
+testValidCPUActive :: Test
+testValidCPUActive = TestCase $ do
+    er <- runM $ runError getCPUActive
+    assertRight "getCPUActive" er
+    mapM_ (assertPositive "getCPUActive") er
 
-testValidMemInfo :: H.Test
-testValidMemInfo = H.TestCase $ do
-    r <- runM $ runError P.getMemInfo :: IO (Either String P.MemInfo)
-    H.assertBool ("/proc/meminfo should be accessable/correct: " ++ fromLeft "" r) $ isRight r
+testValidCPUTime :: Test
+testValidCPUTime = TestCase $ do
+    er <- runM $ runError getCPUTime
+    assertRight "getCPUTime" er
+    mapM_ (assertPositive "getCPUTime") er
 
-testValidPIDStat :: H.Test
-testValidPIDStat = H.TestCase $ do
-    r <- runM $ runError $ P.getPIDStat 1 :: IO (Either String P.PIDStat)
-    H.assertBool ("/proc/1/stat should be accessable/correct: " ++ fromLeft "" r) $ isRight r
+testValidMemInfo :: Test
+testValidMemInfo = TestCase $ do
+    er <- runM $ runError getMemInfo
+    assertRight "getMemInfo" er
 
-testValidPIDStatm :: H.Test
-testValidPIDStatm = H.TestCase $ do
-    r <- runM $ runError $ P.getPIDStatm 1 :: IO (Either String P.PIDStatm)
-    H.assertBool ("/proc/1/statm should be accessable/correct: " ++ fromLeft "" r) $ isRight r
+testValidMemTotal :: Test
+testValidMemTotal = TestCase $ do
+    er <- runM $ runError getMemTotal
+    assertRight "getMemTotal" er
+    mapM_ (assertPositive "getMemTotal") er
 
-tests :: H.Test
-tests = H.TestList
+testValidMemActive :: Test
+testValidMemActive = TestCase $ do
+    er <- runM $ runError getMemActive
+    assertRight "getMemActive" er
+    mapM_ (assertPositive "getMemActive") er
+
+testValidPIDStat :: Test
+testValidPIDStat = TestCase $ do
+    er <- runM $ runError $ getPIDStat (PID 1)
+    assertRight "getPIDStat" er
+
+testProcessCPUTime :: Test
+testProcessCPUTime = TestCase $ do
+    er <- runM $ runError $ getProcessCPUTime (PID 1)
+    assertRight "getProcessCPUTime 1" er
+    mapM_ (assertPositive "getProcessCPUTime 1") er
+
+testValidPIDStatm :: Test
+testValidPIDStatm = TestCase $ do
+    er <- runM $ runError $ getPIDStatm (PID 1)
+    assertRight "getProcessCPUTime 1" er
+
+testProcessMemUsage :: Test
+testProcessMemUsage = TestCase $ do
+    er <- runM $ runError $ getProcessMemUsage (PID 1)
+    assertRight "getProcessMemUsage 1" er
+    mapM_ (assertNonNegative "getProcessMemUsage 1") er
+
+testClockTicksPerSecond :: Test
+testClockTicksPerSecond = TestCase $ do
+    er <- runM $ runError getClockTicksPerSecond
+    assertRight "getClockTicksPerSecond" er
+    mapM_ (assertPositive "getClockTicksPerSecond") er
+
+tests :: Test
+tests = TestList
     [ testValidPIDs
     , testValidStat
+    , testValidCPUActive
+    , testValidCPUTime
     , testValidMemInfo
+    , testValidMemTotal
+    , testValidMemActive
     , testValidPIDStat
+    , testProcessCPUTime
     , testValidPIDStatm
+    , testProcessMemUsage
+    , testClockTicksPerSecond
     ]
