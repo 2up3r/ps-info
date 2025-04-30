@@ -1,62 +1,66 @@
-module PsInfo.Linux.LinuxTests ( tests ) where
+module PsInfo.Linux.LinuxTests (tests) where
 
-import qualified PsInfo.Linux.Proc.ProcTests as P ( tests )
-import qualified PsInfo.Linux as L
+import Control.Monad.Freer (runM)
+import Control.Monad.Freer.Error (runError)
+import Test.HUnit
 
-import qualified Test.HUnit as H
+import PsInfo.Linux
+import PsInfo.Util.Test
+import PsInfo.Util.Types (PID (..))
+import qualified PsInfo.Linux.Proc.ProcTests as P (tests)
 
-import Control.Monad.Freer ( runM )
-import Control.Monad.Freer.Error ( runError )
+testGetPIDs :: Test
+testGetPIDs = TestCase $ do
+    er <- runM $ runError getPIDs
+    assertRight "getPIDs" er
+    mapM_ (assertNotEmpty "getPIDs") er
 
-testGetPIDs :: H.Test
-testGetPIDs = H.TestCase $ do
-    r <- (runM $ runError L.getPIDs :: IO (Either String [L.PID]))
-    case r of
-        (Left err) -> H.assertFailure $ "Failed to get PIDs: " ++ err
-        (Right v) -> H.assertBool "Number of PIDs should be larger than zero" $ not (null v)
+testGetCPUUsage :: Test
+testGetCPUUsage = TestCase $ do
+    er <- runM $ runError $ getCPUUsage 10000
+    assertRight "getCPUUsage 10ms" er
+    mapM_ (assertBetween "getCPUUsage 10ms" 0 1) er
+    mapM_ (assertPositive "getCPUUsage 10ms") er
 
-testGetCPUUsage :: H.Test
-testGetCPUUsage = H.TestCase $ do
-    r <- (runM $ runError $ L.getCPUUsage 10000 :: IO (Either String Double))
-    case r of
-        (Left err) -> H.assertFailure $ "Failed to get CPU usage: " ++ err
-        (Right v) -> do
-            H.assertBool "CPU usage in percent should not be bellow 0%" $ v >= 0
-            H.assertBool "CPU usage in percent should not be above 100%" $ v <= 1
+testGetProcessCPUUsage :: Test
+testGetProcessCPUUsage = TestCase $ do
+    er <- runM $ runError $ getProcessCPUUsage (PID 1) 10000
+    assertRight "getProcessCPUUsage 1 10ms" er
+    mapM_ (assertBetween "getProcessCPUUsage 1 10ms" 0 1) er
 
-testGetProcessCPUUsage :: H.Test
-testGetProcessCPUUsage = H.TestCase $ do
-    r <- (runM $ runError $ L.getProcessCPUUsage 1 10000 :: IO (Either String Double))
-    case r of
-        (Left err) -> H.assertFailure $ "Failed to get CPU usage for pid=1: " ++ err
-        (Right v) -> do
-            H.assertBool "CPU usage in percent for pid=1 should not be bellow 0%" $ v >= 0
-            H.assertBool "CPU usage in percent for pid=1 should not be above 100%" $ v <= 1
+testGetMemUsage :: Test
+testGetMemUsage = TestCase $ do
+    er <- runM $ runError getMemUsage
+    assertRight "getMemUsage" er
+    mapM_ (assertBetween "getMemUsage" 0 1) er
+    mapM_ (assertPositive "getMemUsage") er
 
-testGetMemUsage :: H.Test
-testGetMemUsage = H.TestCase $ do
-    r <- (runM $ runError $ L.getMemUsage :: IO (Either String Double))
-    case r of
-        (Left err) -> H.assertFailure $ "Failed to get memory usage: " ++ err
-        (Right v) -> do
-            H.assertBool "Memory usage in percent should not be bellow 0%" $ v >= 0
-            H.assertBool "Memory usage in percent should not be above 100%" $ v <= 1
+testGetProcessMemUsage :: Test
+testGetProcessMemUsage = TestCase $ do
+    er <- runM $ runError $ getProcessMemUsage (PID 1)
+    assertRight "getProcessMemUsage 1" er
+    mapM_ (assertBetween "getProcessMemUsage 1" 0 1) er
 
-testGetProcessMemUsage :: H.Test
-testGetProcessMemUsage = H.TestCase $ do
-    r <- (runM $ runError $ L.getProcessMemUsage 1 :: IO (Either String Double))
-    case r of
-        (Left err) -> H.assertFailure $ "Failed to get memory usage for pid=1: " ++ err
-        (Right v) -> do
-            H.assertBool "Memory usage in percent for pid=1 should not be bellow 0%" $ v >= 0
-            H.assertBool "Memory usage in percent for pid=1 should not be above 100%" $ v <= 1
+testGetProcessTime :: Test
+testGetProcessTime = TestCase $ do
+    etime <- runM $ runError $ getProcessTime (PID 1)
+    assertRight "getProcessTime 1" etime
+    mapM_ (assertPositive "getProcessTime 1") etime
 
-tests :: H.Test
-tests = H.TestList 
+testGetProcessName :: Test
+testGetProcessName = TestCase $ do
+    ename <- runM $ runError $ getProcessName (PID 1)
+    assertRight "getProcessName 1" ename
+    mapM_ (assertNotEmpty "getProcessTime 1") ename
+
+tests :: Test
+tests = TestList
     [ P.tests
     , testGetPIDs
     , testGetCPUUsage
     , testGetProcessCPUUsage
     , testGetMemUsage
     , testGetProcessMemUsage
+    , testGetProcessTime
+    , testGetProcessName
     ]
