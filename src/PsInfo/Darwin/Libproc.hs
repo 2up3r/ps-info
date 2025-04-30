@@ -35,7 +35,7 @@ data ProcTaskInfo = ProcTaskInfo
     , pti_threadnum         :: CInt
     , pti_numrunning        :: CInt
     , pti_priority          :: CInt
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Read)
 
 instance Storable ProcTaskInfo where
     sizeOf _ = sizeOf (undefined :: CULong) * 6
