@@ -3,6 +3,7 @@ module PsInfo.Darwin.Libproc
     ( getProcTaskInfo
     , ProcTaskInfo (..)
     , getListPids
+    , getName
     ) where
 
 import Foreign (Ptr, Storable(..), alloca, allocaArray, castPtr, peekArray, nullPtr)
@@ -104,6 +105,13 @@ getListPids = do
                 let numPids = fromIntegral bytes `div` sizeOf (undefined :: CInt)
                 pids <- peekArray numPids bufferPtr
                 return $ Right pids
+
+getName :: Members '[Error String, IO] r => CInt -> Eff r FilePath
+getName pid = eitherToEff $ allocaArray (fromIntegral _PROC_PIDPATHINFO_MAXSIZE) $ \bufferPtr -> do
+    bytes <- c_proc_pidpath pid (castPtr bufferPtr) _PROC_PIDPATHINFO_MAXSIZE
+    if bytes == -1
+        then Left <$> getErrnoString "getName"
+        else Right <$> peekCString bufferPtr
 
 getErrnoString :: String -> IO String
 getErrnoString who = getErrno >>= \err -> pure (show $ errnoToIOError who err Nothing Nothing)
