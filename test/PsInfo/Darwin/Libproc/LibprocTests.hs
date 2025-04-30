@@ -22,7 +22,7 @@ testGetProcTaskInfoSuccess = TestCase $ do
 
 testGetNameSuccess :: Test
 testGetNameSuccess = TestCase $ do
-    ename <- runM $ runError $ getName 1
+    ename <- runM $ runError $ getName (PID 1)
     assertRight "getName 1" ename
     mapM_ (assertNotEmpty "getName 1") ename
 

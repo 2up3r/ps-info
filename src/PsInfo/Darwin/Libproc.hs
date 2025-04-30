@@ -161,9 +161,9 @@ getListPids = do
                 pids <- peekArray numPids bufferPtr
                 return $ Right pids
 
-getName :: Members '[Error String, IO] r => CInt -> Eff r FilePath
-getName pid = eitherToEff $ allocaArray (fromIntegral _PROC_PIDPATHINFO_MAXSIZE) $ \bufferPtr -> do
-    bytes <- c_proc_pidpath pid (castPtr bufferPtr) _PROC_PIDPATHINFO_MAXSIZE
+getName :: Members '[Error String, IO] r => PID -> Eff r FilePath
+getName (PID pid) = eitherToEff $ allocaArray (fromIntegral _PROC_PIDPATHINFO_MAXSIZE) $ \bufferPtr -> do
+    bytes <- c_proc_pidpath (fromIntegral pid) (castPtr bufferPtr) _PROC_PIDPATHINFO_MAXSIZE
     if bytes == -1
         then Left <$> getErrnoString "getName"
         else Right <$> peekCString bufferPtr

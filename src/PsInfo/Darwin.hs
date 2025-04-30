@@ -107,7 +107,7 @@ getProcessMemUsages pids = do
         else pure $ ((/ fromIntegral total) . fromIntegral <$>) <$> rsss
 
 getProcessName :: Members '[Error String, IO] r => PID -> Eff r String
-getProcessName (PID pid) = getFilePart <$> L.getName (fromIntegral pid)
+getProcessName pid = getFilePart <$> L.getName pid
     where
         getFilePart :: FilePath -> String
         getFilePart = reverse . takeWhile (/= '/') . reverse
