@@ -1,28 +1,33 @@
 module PsInfo.Darwin.Libproc.LibprocTests (tests) where
 
-import PsInfo.Darwin.Libproc as L
-
-import qualified Test.HUnit as H
-
 import Control.Monad.Freer (runM)
 import Control.Monad.Freer.Error (runError)
+import Test.HUnit
 
-testGetListPidsSuccess :: H.Test
-testGetListPidsSuccess = H.TestCase $ do
-    epids <- runM $ runError L.getListPids
-    case epids of 
-        (Left err) -> H.assertFailure $ "getListPids should return items: " ++ err 
-        (Right pids) -> H.assertBool "Length of getListPids should not be zero" $ not (null pids)
+import PsInfo.Darwin.Libproc
+import PsInfo.Util.Test
 
-testGetProcTaskInfoSucess :: H.Test
-testGetProcTaskInfoSucess = H.TestCase $ do
-    epti <- (runM $ runError $ L.getProcTaskInfo 1 :: IO (Either String L.ProcTaskInfo))
-    case epti of
-        (Left err) -> H.assertFailure $ "getProcTaskInfo 1 (initial process) should give a value: " ++ err
-        (Right pti) -> H.assertBool ("getProcTaskInfo 1 (initial process) should give a values (probably missing permissions): " ++ show pti) $ L.pti_total_user pti /= 0
+testGetListPidsSuccess :: Test
+testGetListPidsSuccess = TestCase $ do
+    epids <- runM $ runError getListPids
+    assertRight "getListPids" epids
+    mapM_ (assertNotEmpty "getListPids") epids
 
-tests :: H.Test
-tests = H.TestList 
+testGetProcTaskInfoSuccess :: Test
+testGetProcTaskInfoSuccess = TestCase $ do
+    epti <- (runM $ runError $ getProcTaskInfo 1 :: IO (Either String ProcTaskInfo))
+    assertRight "getProcTaskInfo 1" epti
+    mapM_ (assertPositive "getProcTaskInfo 1 (total system time)" . pti_total_system) epti
+
+testGetNameSuccess :: Test
+testGetNameSuccess = TestCase $ do
+    ename <- runM $ runError $ getName 1
+    assertRight "getName 1" ename
+    mapM_ (assertNotEmpty "getName 1") ename
+
+tests :: Test
+tests = TestList 
     [ testGetListPidsSuccess
-    , testGetProcTaskInfoSucess
+    , testGetProcTaskInfoSuccess
+    , testGetNameSuccess
     ]
