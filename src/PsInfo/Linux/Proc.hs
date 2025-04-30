@@ -258,7 +258,7 @@ pMemInfo = MemInfo
 ---------- /PROC/PID/STAT ----------
 
 getPIDStat :: Members '[Error String, IO] r => PID -> Eff r PIDStat
-getPIDStat pid = readAndParse ("/proc/" ++ show pid ++ "/stat") pPIDStat
+getPIDStat (PID pid) = readAndParse ("/proc/" ++ show pid ++ "/stat") pPIDStat
 
 getProcessCPUTime :: Members '[Error String, IO] r => PID -> Eff r Jiffy
 getProcessCPUTime = (extractPIDCPUTime <$>) . getPIDStat
@@ -344,7 +344,7 @@ pPIDStat = PIDStat . PID <$> A.decimal
 ---------- /PROC/PID/STATM ----------
 
 getPIDStatm :: Members '[Error String, IO] r => PID -> Eff r PIDStatm
-getPIDStatm pid = readAndParse ("/proc/" ++ show pid ++ "/statm") pPIDStatm
+getPIDStatm (PID pid) = readAndParse ("/proc/" ++ show pid ++ "/statm") pPIDStatm
 
 getProcessMemUsage :: Members '[Error String, IO] r => PID -> Eff r KiloByte
 getProcessMemUsage pid = getPIDStatm pid >>= send . calcPIDMemUsage
