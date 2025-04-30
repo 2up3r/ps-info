@@ -4,17 +4,32 @@ A library for accessing process and system statistics (e.g. cpu and memory usage
 
 ## Notes on usage
 
-On darwin-based system `sudo` is required.
+On darwin-based system we need priveliges for getting process information.
+
+First install the library
+
+```sh
+cabal install
+```
+
+In the ouput it will list a location of the executable `libproc-helper-exe`.
+Use this path and run
+
+```sh
+sudo chown root [EXE]
+sudo chmod u+s [EXE]
+```
+
+Now you are good to go!
 
 ## Known Issues
+
+### PsInfo.Darwin
+
+- getCPUUsage
+    - May throw error if the delay is under 1s, because of insufficient updates to the ticks from the kernel.
 
 ### PsInfo.Darwin.Libproc
 
 - getProcTaskInfo
-    - All values appear as `0` if `sudo` is not used.
-
-### PsInfo.Darwin.Mach
-
-- *all*
-    - Only works for *self*
-        - Not fixed by using `sudo` or entitlements
+    - All values appear as `0` if `root` user is not executing.
