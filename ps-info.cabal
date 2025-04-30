@@ -26,7 +26,8 @@ library
                       PsInfo.Darwin.Sysctl,
                       PsInfo.Linux,
                       PsInfo.Linux.Proc,
-    -- other-modules:
+                      PsInfo.Util.Types,
+    other-modules:    PsInfo.Util.Effect,
     -- other-extensions:
     build-depends:    base ^>=4.17.2.1,
                       directory,
