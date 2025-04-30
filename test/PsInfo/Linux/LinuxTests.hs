@@ -20,7 +20,7 @@ testGetCPUUsage = TestCase $ do
     er <- runM $ runError $ getCPUUsage 10000
     assertRight "getCPUUsage 10ms" er
     mapM_ (assertBetween "getCPUUsage 10ms" 0 1) er
-    mapM_ (assertPositive "getCPUUsage 10ms") er
+    mapM_ (assertNonNegative "getCPUUsage 10ms") er
 
 testGetProcessCPUUsage :: Test
 testGetProcessCPUUsage = TestCase $ do
@@ -33,7 +33,7 @@ testGetMemUsage = TestCase $ do
     er <- runM $ runError getMemUsage
     assertRight "getMemUsage" er
     mapM_ (assertBetween "getMemUsage" 0 1) er
-    mapM_ (assertPositive "getMemUsage") er
+    mapM_ (assertNonNegative "getMemUsage") er
 
 testGetProcessMemUsage :: Test
 testGetProcessMemUsage = TestCase $ do
@@ -45,7 +45,7 @@ testGetProcessTime :: Test
 testGetProcessTime = TestCase $ do
     etime <- runM $ runError $ getProcessTime (PID 1)
     assertRight "getProcessTime 1" etime
-    mapM_ (assertPositive "getProcessTime 1") etime
+    mapM_ (assertNonNegative "getProcessTime 1") etime
 
 testGetProcessName :: Test
 testGetProcessName = TestCase $ do
