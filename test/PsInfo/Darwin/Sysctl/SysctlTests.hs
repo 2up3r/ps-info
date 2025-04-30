@@ -1,28 +1,30 @@
+{-# LANGUAGE DataKinds #-}
 module PsInfo.Darwin.Sysctl.SysctlTests (tests) where
-
-import PsInfo.Darwin.Sysctl
-
-import qualified Test.HUnit as H
 
 import Control.Monad.Freer (runM)
 import Control.Monad.Freer.Error (runError)
+import Test.HUnit
 
-testSysctlSuccess :: H.Test
-testSysctlSuccess = H.TestCase $ do 
-    es <- runM $ runError $ getSysctl [1, 1]
-    case es of
-        (Left err) -> H.assertFailure $ "sysctl 1,1 should give a value: " ++ err
-        (Right _) -> pure ()
+import PsInfo.Darwin.Sysctl
+import PsInfo.Util.Test
 
-testSysctlFail :: H.Test
-testSysctlFail = H.TestCase $ do
-    es <- (runM $ runError $ getSysctl [1, 1, 1] :: IO (Either String String))
-    case es of
-        (Left _) -> pure ()
-        (Right s) -> H.assertFailure $ "sysctl 1,1,1 should not give a value: " ++ show s
+testSysctlSuccess :: Test
+testSysctlSuccess = TestCase $ do
+    let _CTL_HW = 6
+        _HW_MEMSIZE = 24
+    es <- runM $ runError $ getSysctl [_CTL_HW, _HW_MEMSIZE] :: IO (Either String Int)
+    assertRight "getSysctl [_CTL_HW, _HW_MEMSIZE]" es
+    mapM_ (assertPositive "getSysctl [_CTL_HW, _HW_MEMSIZE]") es
 
-tests :: H.Test
-tests = H.TestList 
+testSysctlFail :: Test
+testSysctlFail = TestCase $ do
+    let _CTL_KERN = 1
+        _KERN_HOSTNAME = 10
+    es <- runM $ runError $ getSysctl [_CTL_KERN, _KERN_HOSTNAME, 1] :: IO (Either String Int)
+    assertLeft "getSysctl [_CTL_KERN, _KERN_HOSTNAME, 1]" es
+
+tests :: Test
+tests = TestList
     [ testSysctlSuccess
     , testSysctlFail
     ]
