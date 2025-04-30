@@ -50,6 +50,7 @@ test-suite ps-info-test
                       PsInfo.Darwin.Libproc.LibprocTests,
                       PsInfo.Linux.LinuxTests,
                       PsInfo.Linux.Proc.ProcTests,
+                      PsInfo.Util.Test
     -- other-extensions:
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
