@@ -6,9 +6,12 @@ module PsInfo
     , getMemUsage
     , getPIDs
     , getProcessCPUUsage
+    , getProcessCPUUsages
     , getProcessMemUsage
+    , getProcessMemUsages
     , getProcessName
     , getProcessTime
+    , getProcessTimes
     , getWallTime
     ) where
 
@@ -56,10 +59,22 @@ getProcessCPUUsage = case os of
     "darwin" -> D.getProcessCPUUsage
     _        -> const $ const throwNotImplemented
 
+getProcessCPUUsages :: Members '[Error String, IO] r => [PID] -> MicroSecond -> Eff r [Maybe Percent]
+getProcessCPUUsages = case os of
+    "linux"  -> L.getProcessCPUUsages
+    "darwin" -> D.getProcessCPUUsages
+    _        -> const $ const throwNotImplemented
+
 getProcessMemUsage :: Members '[Error String, IO] r => PID -> Eff r Percent
 getProcessMemUsage = case os of
     "linux"  -> L.getProcessMemUsage
     "darwin" -> D.getProcessMemUsage
+    _        -> const throwNotImplemented
+
+getProcessMemUsages :: Members '[Error String, IO] r => [PID] -> Eff r [Maybe Percent]
+getProcessMemUsages = case os of
+    "linux"  -> L.getProcessMemUsages
+    "darwin" -> D.getProcessMemUsages
     _        -> const throwNotImplemented
 
 getProcessName :: Members '[Error String, IO] r => PID -> Eff r String
@@ -72,6 +87,12 @@ getProcessTime :: Members '[Error String, IO] r => PID -> Eff r MicroSecond
 getProcessTime = case os of
     "linux"  -> L.getProcessTime
     "darwin" -> D.getProcessTime
+    _        -> const throwNotImplemented
+
+getProcessTimes :: Members '[Error String, IO] r => [PID] -> Eff r [Maybe MicroSecond]
+getProcessTimes = case os of
+    "linux"  -> L.getProcessTimes
+    "darwin" -> D.getProcessTimes
     _        -> const throwNotImplemented
 
 getWallTime :: Members '[Error String, IO] r => Eff r MicroSecond
