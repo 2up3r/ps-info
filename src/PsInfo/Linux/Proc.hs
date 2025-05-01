@@ -21,6 +21,7 @@ module PsInfo.Linux.Proc
     ) where
 
 import Control.Applicative ((<|>))
+import Control.Exception (IOException)
 import Data.Char (isDigit)
 import Data.Functor (($>))
 import Foreign.C.Types (CInt (..), CLong (..))
@@ -28,7 +29,7 @@ import Foreign.C.Types (CInt (..), CLong (..))
 import Control.Monad.Freer (Eff, Members, send)
 import Control.Monad.Freer.Error (Error, throwError)
 import System.Directory (listDirectory)
-import System.Directory.Internal.Prelude (tryIOError)
+import System.Directory.Internal.Prelude (try, tryIOError)
 import System.Process (readProcess)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B
@@ -50,13 +51,15 @@ pagesToBytes p = (p *) <$> getPageSize
 
 readAndParse :: Members '[Error String, IO] r => FilePath -> A.Parser a -> Eff r a
 readAndParse fp p = do
-    raw <- send $ B.readFile fp
-    case A.parse p raw of
-        (A.Done _ res) -> pure res
-        (A.Partial pRest) -> case pRest "" of
+    eraw <- send $ try $ B.readFile fp
+    case eraw of
+        (Left e) -> throwError $ show (e :: IOException)
+        (Right raw) -> case A.parse p raw of
             (A.Done _ res) -> pure res
-            _ -> throwError ("readAndParse: Failed to parse nothing!" :: String)
-        (A.Fail _ _ err) -> throwError err
+            (A.Partial pRest) -> case pRest "" of
+                (A.Done _ res) -> pure res
+                _ -> throwError ("readAndParse: Failed to parse nothing!" :: String)
+            (A.Fail _ _ err) -> throwError err
 
 pLineUntil :: A.Parser a -> A.Parser a
 pLineUntil p = p <|> (A.takeTill (=='\n') *> A.endOfLine *> pLineUntil p)
