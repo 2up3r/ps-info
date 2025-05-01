@@ -1,6 +1,6 @@
 # ps-info
 
-A library for accessing process and system statistics (e.g. cpu and memory usage) on Linux and Darwin based systems. 
+A library for accessing process and system statistics (e.g. cpu and memory usage) on Linux- and Darwin-based systems. 
 
 ## Notes on usage
 
@@ -9,15 +9,15 @@ On darwin-based system we need priveliges for getting process information.
 First install the library
 
 ```sh
-cabal install
+$ cabal install
 ```
 
 In the ouput it will list a location of the executable `libproc-helper-exe`.
-Use this path and run
+Use this path and run:
 
 ```sh
-sudo chown root [EXE]
-sudo chmod u+s [EXE]
+$ sudo chown root <libproc-helper-exe>
+$ sudo chmod u+s <libproc-helper-exe>
 ```
 
 Now you are good to go!
