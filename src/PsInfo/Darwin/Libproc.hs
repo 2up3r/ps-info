@@ -16,14 +16,15 @@ import Foreign.C.Error (errnoToIOError, getErrno)
 import Foreign.C (peekCString)
 import Text.Read (readMaybe)
 
-import Control.Monad.Freer (Eff, Members, runM, send)
-import Control.Monad.Freer.Error (Error, runError, throwError)
+import Control.Monad.Freer (Eff, Members, send)
+import Control.Monad.Freer.Error (Error)
 import System.Directory (findExecutable)
 import System.Posix (getEffectiveUserID)
 import System.Process (readProcess)
 
-import PsInfo.Util.Effect (eitherToEff)
+import PsInfo.Util.Effect (eitherToEff, maybeToEff, effToMaybe)
 import PsInfo.Util.Types (PID (PID))
+import Data.Maybe (listToMaybe)
 
 data ProcTaskInfo = ProcTaskInfo
     { pti_virtual_size      :: CULong
@@ -105,52 +106,24 @@ unsafeGetProcTaskInfo pid = eitherToEff $ alloca $ \ptr -> do
 
 getProcTaskInfos :: Members '[Error String, IO] r => [PID] -> Eff r [Maybe ProcTaskInfo]
 getProcTaskInfos pids = do
-    let pids' = unpackPIDs pids
-    suid <- send hasSIUD
+    let pids' = (\(PID pid) -> pid) <$> pids
+    suid <- send $ (== 0) <$> getEffectiveUserID
     if suid
-        then send $ forM pids' getMaybePTI
+        then send $ forM pids' $ effToMaybe . unsafeGetProcTaskInfo . fromIntegral
         else do
-            maybeResponse <- send $ runHelper pids'
-            case maybeResponse of
-                (Left err) -> throwError $ "Error in safeGetProcTaskInfo: " ++ err
-                (Right response) -> do
-                    let maybePTIs = readMaybe response :: Maybe [Maybe ProcTaskInfo]
-                    case maybePTIs of
-                        Nothing -> throwError "Error in safeGetProcTaskInfo: could not parse."
-                        (Just ptis) -> pure ptis
-    where
-        runHelper :: [Int] -> IO (Either String String)
-        runHelper pids' = do
-            maybeExe <- findExecutable "libproc-helper-exe"
-            case maybeExe of
-                Nothing -> pure $ Left "Could not find executable."
-                (Just exe) -> do
-                    er <- try $ readProcess exe (show <$> pids') "" :: IO (Either IOException String)
-                    case er of
-                        (Left e) -> pure $ Left $ show e
-                        (Right r) -> pure $ Right r
-        hasSIUD :: IO Bool
-        hasSIUD = (== 0) <$> getEffectiveUserID
-        unpackPIDs :: [PID] -> [Int]
-        unpackPIDs = ((\(PID pid) -> pid) <$>)
-        getMaybePTI :: Int -> IO (Maybe ProcTaskInfo)
-        getMaybePTI pid = do
-            epti <- runM $ runError $ unsafeGetProcTaskInfo (fromIntegral pid) :: IO (Either String ProcTaskInfo)
-            case epti of
-                (Left _) -> pure Nothing
-                (Right pti) -> pure $ Just pti
+            exe <- maybeToEff "Could not find executable." $ findExecutable "libproc-helper-exe"
+            response <- eitherToEff (try $ readProcess exe (show <$> pids') "" :: IO (Either IOException String))
+            let maybePTIs = readMaybe response :: Maybe [Maybe ProcTaskInfo]
+            maybeToEff "Error in safeGetProcTaskInfo: could not parse." $ pure maybePTIs
 
 getProcTaskInfo :: Members '[Error String, IO] r => PID -> Eff r ProcTaskInfo
 getProcTaskInfo pid = do
-    mptis <- getProcTaskInfos [pid]
-    if null mptis
-        then throwError "Error in getProcTaskInfo: could not find PID."
-        else case head mptis of
-            Nothing -> throwError "Error in getProcTaskInfo: could not find PID."
-            (Just pti) -> pure pti
+    mmpti <- listToMaybe <$> getProcTaskInfos [pid]
+    mpti <- maybeToEff "Error in getProcTaskInfo: could not run for PID." $ pure mmpti
+    maybeToEff "Error in getProcTaskInfo: could not find PID." $ pure mpti
 
 getListPids :: Members '[Error String, IO] r => Eff r [CInt]
-getListPids = do 
+getListPids = do
     bufferSize <- send $ c_proc_listpids _PROC_ALL_PIDS 0 nullPtr 0
     eitherToEff $ allocaArray (fromIntegral bufferSize `div` sizeOf (undefined :: CInt)) $ \bufferPtr -> do
         bytes <- c_proc_listpids _PROC_ALL_PIDS 0 bufferPtr bufferSize
